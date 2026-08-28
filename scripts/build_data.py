@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""Simplify Tampere open-data polygons into compact SVG-ready JSON."""
+
+from __future__ import annotations
+
+import json
+import math
+import re
+import unicodedata
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+OUT = ROOT / "data" / "districts.json"
+
+# Urban Tampere: drop Teisko / Kämmenniemi / Nurmi-Sorila so the map is playable.
+NORTH_PLANNING = {"TEISKO", "KÄMMENNIEMI", "NURMI-SORILA"}
+NORTH_STATS = {
+    "VIITAPOHJA",
+    "KÄMMENNIEMI",
+    "TERÄLAHTI",
+    "VELAATTA",
+    "POLSO",
+    "SORILA",
+    "AITONIEMI",
+    "NURMI",
+}
+
+EASY_IDS = [
+    "pispala",
+    "hervanta-pohjoinen",
+    "hervanta-etela",
+    "kaleva",
+    "tammela",
+    "amuri",
+    "tesoma",
+    "lentavanniemi",
+    "pyynikki",
+    "hatanpaa",
+    "vuores",
+    "finlayson",
+]
+
+LAT0 = 61.498
+LON0 = 23.76
+KX = 111_320.0 * math.cos(math.radians(LAT0))
+KY = 110_540.0
+PAD = 28
+TARGET_W = 1000.0
+SIMPLIFY_M = 28.0  # metres, Douglas-Peucker
+MIN_RING_PTS = 8
+
+
+def slug(name: str) -> str:
+    s = name.lower().replace("ä", "a").replace("ö", "o").replace("å", "a")
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = re.sub(r"\s*\([^)]*\)\s*", " ", s)
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    return s
+
+
+def nice_name(raw: str) -> str:
+    s = re.sub(r"\s*\(([IVXLCDM]+)\)\s*", "", raw).strip()
+    bits = []
+    for word in s.split(" "):
+        bits.append("-".join(part.capitalize() for part in word.split("-") if part))
+    return " ".join(bits)
+
+
+def walk_coords(geom):
+    t = geom["type"]
+    c = geom["coordinates"]
+    if t == "Polygon":
+        return [c]
+    if t == "MultiPolygon":
+        return c
+    raise ValueError(t)
+
+
+def project(lon: float, lat: float) -> tuple[float, float]:
+    return (lon - LON0) * KX, (LAT0 - lat) * KY
+
+
+def ring_bbox(ring):
+    xs = [p[0] for p in ring]
+    ys = [p[1] for p in ring]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def dist2(a, b):
+    dx, dy = a[0] - b[0], a[1] - b[1]
+    return dx * dx + dy * dy
+
+
+def perp_dist(p, a, b):
+    ax, ay = b[0] - a[0], b[1] - a[1]
+    if ax == 0 and ay == 0:
+        return math.sqrt(dist2(p, a))
+    t = ((p[0] - a[0]) * ax + (p[1] - a[1]) * ay) / (ax * ax + ay * ay)
+    t = max(0.0, min(1.0, t))
+    return math.hypot(p[0] - (a[0] + t * ax), p[1] - (a[1] + t * ay))
+
+
+def douglas_peucker(pts, eps):
+    if len(pts) <= MIN_RING_PTS:
+        return pts
+    closed = pts[0] == pts[-1]
+    work = pts[:-1] if closed else pts[:]
+
+    def rec(points):
+        if len(points) < 3:
+            return points
+        a, b = points[0], points[-1]
+        idx, best = 0, -1.0
+        for i in range(1, len(points) - 1):
+            d = perp_dist(points[i], a, b)
+            if d > best:
+                idx, best = i, d
+        if best > eps:
+            left = rec(points[: idx + 1])
+            right = rec(points[idx:])
+            return left[:-1] + right
+        return [a, b]
+
+    simplified = rec(work)
+    if closed:
+        if simplified[0] != simplified[-1]:
+            simplified.append(simplified[0])
+    return simplified if len(simplified) >= 4 else pts
+
+
+def area_centroid(ring):
+    # ring in projected metres; ignore closing duplicate
+    pts = ring[:-1] if ring[0] == ring[-1] else ring
+    a = cx = cy = 0.0
+    n = len(pts)
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        cross = x1 * y2 - x2 * y1
+        a += cross
+        cx += (x1 + x2) * cross
+        cy += (y1 + y2) * cross
+    a *= 0.5
+    if abs(a) < 1e-6:
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        return 0.0, (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    return abs(a), cx / (6 * a), cy / (6 * a)
+
+
+def to_path(polygons, sx, sy, ox, oy) -> str:
+    parts = []
+    for poly in polygons:
+        for ring in poly:
+            if len(ring) < 4:
+                continue
+            cmds = []
+            for i, (x, y) in enumerate(ring):
+                px = round((x - ox) * sx, 2)
+                py = round((y - oy) * sy, 2)
+                cmds.append(("M" if i == 0 else "L") + f"{px},{py}")
+            parts.append(" ".join(cmds) + " Z")
+    return " ".join(parts)
+
+
+def process(raw_path: Path, skip_names: set[str]):
+    data = json.loads(raw_path.read_text())
+    features = []
+    for feat in data["features"]:
+        name = feat["properties"]["NIMI"]
+        if name in skip_names:
+            continue
+        polys = []
+        for poly in walk_coords(feat["geometry"]):
+            rings = []
+            for ring in poly:
+                proj = [project(lon, lat) for lon, lat in ring]
+                proj = douglas_peucker(proj, SIMPLIFY_M)
+                if len(proj) >= 4:
+                    rings.append(proj)
+            if rings:
+                polys.append(rings)
+        if not polys:
+            continue
+        # centroid/area from outer rings
+        total_a = 0.0
+        cx = cy = 0.0
+        for poly in polys:
+            a, x, y = area_centroid(poly[0])
+            total_a += a
+            cx += x * a
+            cy += y * a
+        if total_a <= 0:
+            continue
+        features.append(
+            {
+                "id": slug(name),
+                "name": nice_name(name),
+                "raw": name,
+                "polys": polys,
+                "cx": cx / total_a,
+                "cy": cy / total_a,
+                "area": total_a,
+            }
+        )
+    features.sort(key=lambda f: f["name"])
+    return features
+
+
+def fit(all_features):
+    xs, ys = [], []
+    for f in all_features:
+        for poly in f["polys"]:
+            for ring in poly:
+                for x, y in ring:
+                    xs.append(x)
+                    ys.append(y)
+    minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
+    w, h = maxx - minx, maxy - miny
+    sx = (TARGET_W - 2 * PAD) / w
+    sy = sx
+    height = h * sy + 2 * PAD
+    ox, oy = minx, miny
+    return sx, sy, ox, oy, TARGET_W, height
+
+
+def packed(features, sx, sy, ox, oy):
+    out = []
+    for f in features:
+        path = to_path(f["polys"], sx, sy, ox - PAD / sx, oy - PAD / sy)
+        out.append(
+            {
+                "id": f["id"],
+                "name": f["name"],
+                "path": path,
+                "cx": round((f["cx"] - ox) * sx + PAD, 2),
+                "cy": round((f["cy"] - oy) * sy + PAD, 2),
+                "area": round(f["area"], 1),
+            }
+        )
+    return out
+
+
+def main():
+    planning = process(Path("/tmp/suunn.geojson"), NORTH_PLANNING)
+    stats = process(Path("/tmp/tilasto.geojson"), NORTH_STATS)
+    sx, sy, ox, oy, width, height = fit(planning + stats)
+
+    easy = [d for d in packed(planning, sx, sy, ox, oy) if d["id"] in EASY_IDS]
+    missing = [i for i in EASY_IDS if i not in {d["id"] for d in easy}]
+    if missing:
+        raise SystemExit(f"Easy ids not found: {missing}")
+
+    payload = {
+        "attribution": "Lähde: Tampereen kaupunki, suunnittelualueet ja tilastoalueet. CC BY 4.0.",
+        "viewBox": [0, 0, round(width, 2), round(height, 2)],
+        "levels": {
+            "easy": {
+                "labelFi": "Helppo",
+                "labelEn": "Easy",
+                "blurbFi": "12 tunnettua kaupunginosaa",
+                "blurbEn": "12 well-known districts",
+                "districts": easy,
+            },
+            "medium": {
+                "labelFi": "Normaali",
+                "labelEn": "Normal",
+                "blurbFi": "Kaikki kaupunginosat",
+                "blurbEn": "Every urban district",
+                "districts": packed(planning, sx, sy, ox, oy),
+            },
+            "hard": {
+                "labelFi": "Vaikea",
+                "labelEn": "Hard",
+                "blurbFi": "Tilastoalueet paloina",
+                "blurbEn": "Statistical areas as pieces",
+                "districts": packed(stats, sx, sy, ox, oy),
+            },
+        },
+    }
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    OUT.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    print(
+        f"wrote {OUT} ({OUT.stat().st_size} bytes) "
+        f"easy={len(easy)} medium={len(payload['levels']['medium']['districts'])} "
+        f"hard={len(payload['levels']['hard']['districts'])} "
+        f"viewBox={payload['viewBox']}"
+    )
+
+
+if __name__ == "__main__":
+    main()
