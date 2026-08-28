@@ -242,6 +242,90 @@ def packed(features, sx, sy, ox, oy):
     return out
 
 
+def svg_xy(lon, lat, sx, sy, ox, oy):
+    x, y = project(lon, lat)
+    return round((x - ox) * sx + PAD, 2), round((y - oy) * sy + PAD, 2)
+
+
+def line_path(points, sx, sy, ox, oy):
+    cmds = []
+    for i, (lon, lat) in enumerate(points):
+        px, py = svg_xy(lon, lat, sx, sy, ox, oy)
+        cmds.append(("M" if i == 0 else "L") + f"{px},{py}")
+    return " ".join(cmds)
+
+
+def ring_path(ring, sx, sy, ox, oy):
+    cmds = []
+    for i, (lon, lat) in enumerate(ring):
+        px, py = svg_xy(lon, lat, sx, sy, ox, oy)
+        cmds.append(("M" if i == 0 else "L") + f"{px},{py}")
+    return " ".join(cmds) + " Z"
+
+
+# North→south through the isthmus, Näsijärvi to Pyhäjärvi.
+KOSKI_LINE = [
+    (23.7543, 61.5062),
+    (23.7561, 61.5050),
+    (23.7570, 61.5042),
+    (23.7580, 61.5033),
+    (23.7594, 61.5026),
+    (23.7612, 61.5021),
+    (23.7624, 61.5004),
+    (23.7629, 61.5000),
+    (23.7638, 61.4983),
+    (23.7643, 61.4966),
+    (23.7648, 61.4957),
+    (23.7644, 61.4944),
+    (23.7615, 61.4928),
+    (23.7584, 61.4911),
+    (23.7587, 61.4902),
+]
+
+PLACES = [
+    {"id": "nasinneula", "nameFi": "Näsinneula", "nameEn": "Näsinneula", "lon": 23.743288, "lat": 61.504969, "icon": "tower"},
+    {"id": "pyynikki-tower", "nameFi": "Pyynikin näkötorni", "nameEn": "Pyynikki tower", "lon": 23.731964, "lat": 61.496378, "icon": "tower"},
+    {"id": "asema", "nameFi": "Rautatieasema", "nameEn": "Railway station", "lon": 23.773858, "lat": 61.498237, "icon": "dot"},
+    {"id": "nokia-arena", "nameFi": "Nokia Arena", "nameEn": "Nokia Arena", "lon": 23.773934, "lat": 61.493630, "icon": "dot"},
+    {"id": "ratina", "nameFi": "Ratinan stadion", "nameEn": "Ratina stadium", "lon": 23.764130, "lat": 61.492757, "icon": "dot"},
+    {"id": "tampere-talo", "nameFi": "Tampere-talo", "nameEn": "Tampere Hall", "lon": 23.782356, "lat": 61.495891, "icon": "dot"},
+]
+
+LAKES = [
+    {"id": "nasijarvi", "nameFi": "Näsijärvi", "nameEn": "Näsijärvi", "lon": 23.772, "lat": 61.516},
+    {"id": "pyhajarvi", "nameFi": "Pyhäjärvi", "nameEn": "Pyhäjärvi", "lon": 23.748, "lat": 61.478},
+]
+
+
+def landmarks(sx, sy, ox, oy):
+    waters = []
+    koski_file = Path("/tmp/koski.json")
+    if koski_file.exists():
+        raw = json.loads(koski_file.read_text())
+        waters = [ring_path(poly, sx, sy, ox, oy) for poly in raw.get("polys", []) if len(poly) >= 4]
+    places = []
+    for p in PLACES:
+        x, y = svg_xy(p["lon"], p["lat"], sx, sy, ox, oy)
+        places.append({k: p[k] for k in ("id", "nameFi", "nameEn", "icon")} | {"x": x, "y": y})
+    lakes = []
+    for lake in LAKES:
+        x, y = svg_xy(lake["lon"], lake["lat"], sx, sy, ox, oy)
+        lakes.append({k: lake[k] for k in ("id", "nameFi", "nameEn")} | {"x": x, "y": y})
+    koski_label = svg_xy(23.7618, 61.4996, sx, sy, ox, oy)
+    return {
+        "koski": {
+            "path": line_path(KOSKI_LINE, sx, sy, ox, oy),
+            "waters": waters,
+            "nameFi": "Tammerkoski",
+            "nameEn": "Tammerkoski",
+            "x": koski_label[0],
+            "y": koski_label[1],
+        },
+        "lakes": lakes,
+        "places": places,
+    }
+
+
 def main():
     planning = process(Path("/tmp/suunn.geojson"), NORTH_PLANNING)
     stats = process(Path("/tmp/tilasto.geojson"), NORTH_STATS)
@@ -253,8 +337,9 @@ def main():
         raise SystemExit(f"Easy ids not found: {missing}")
 
     payload = {
-        "attribution": "Lähde: Tampereen kaupunki, suunnittelualueet ja tilastoalueet. CC BY 4.0.",
+        "attribution": "Lähde: Tampereen kaupunki, suunnittelualueet ja tilastoalueet. CC BY 4.0. Maamerkit: OpenStreetMap, ODbL.",
         "viewBox": [0, 0, round(width, 2), round(height, 2)],
+        "landmarks": landmarks(sx, sy, ox, oy),
         "levels": {
             "easy": {
                 "labelFi": "Helppo",

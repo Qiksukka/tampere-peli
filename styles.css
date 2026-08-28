@@ -237,34 +237,32 @@ button,
 path.land {
   fill: var(--land);
   stroke: var(--land-stroke);
-  stroke-width: 0.7;
+  stroke-width: 0.55;
   pointer-events: none;
 }
 
 path.slot {
-  fill: #fff8ee;
-  stroke: #6a4e2a;
-  stroke-width: 1.35;
-  stroke-dasharray: 5 3;
+  fill: var(--land);
+  stroke: #5d6e72;
+  stroke-width: 0.55;
   cursor: pointer;
 }
 
 path.slot.is-hot {
-  fill: #fff8ea;
+  fill: #d8c9aa;
   stroke: var(--gold);
-  stroke-dasharray: none;
+  stroke-width: 1.1;
 }
 
 path.slot.is-wrong {
-  fill: #f3c4bc;
+  fill: #e3b4ac;
   stroke: var(--bad);
-  stroke-dasharray: none;
 }
 
 path.slot.is-hint {
-  fill: #ffe08a;
+  fill: #e8c56a;
   stroke: var(--brick);
-  stroke-dasharray: none;
+  stroke-width: 1.4;
 }
 
 path.placed {
@@ -272,15 +270,62 @@ path.placed {
   stroke-width: 0.8;
 }
 
+.koski-water {
+  fill: var(--water);
+}
+
+.koski-line {
+  fill: none;
+  stroke: #8ed4de;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.koski-label,
+.lake-label {
+  fill: #c5eef3;
+  font-family: Fraunces, Georgia, serif;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-anchor: middle;
+}
+
+.koski-label {
+  font-size: 10px;
+  fill: #f0d48a;
+}
+
+.pin circle,
+.pin rect {
+  fill: var(--gold);
+}
+
+.pin polygon {
+  fill: var(--foam);
+}
+
+.pin text {
+  fill: var(--foam);
+  font-family: Outfit, "Segoe UI", sans-serif;
+  font-size: 8.5px;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: #0c272e;
+  stroke-width: 2.6px;
+  stroke-linejoin: round;
+}
+
 .tray {
   background: var(--foam);
   color: var(--ink);
   border-radius: 24px;
-  padding: 18px 16px 16px;
+  padding: 22px 18px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   box-shadow: var(--shadow);
+  justify-content: center;
 }
 
 .tray .kicker {
@@ -293,37 +338,21 @@ path.placed {
 
 .tray h2 {
   margin: 0;
-  font-size: 1.8rem;
+  font-size: 2.1rem;
   line-height: 1.05;
 }
 
-.piece {
-  flex: 1;
-  display: grid;
-  place-items: center;
-  background:
-    radial-gradient(circle at 30% 20%, #fff 0%, transparent 40%),
-    #efe3cc;
-  border-radius: 18px;
-  min-height: 180px;
-  cursor: grab;
-  touch-action: none;
+.tray .prompt {
+  margin: 4px 0 0;
+  color: #3d3832;
+  font-size: 1rem;
 }
 
-.piece:active {
-  cursor: grabbing;
-}
-
-.piece svg {
-  width: 86%;
-  height: 180px;
-  pointer-events: none;
-}
-
-.piece path {
-  fill: var(--brick);
-  stroke: var(--brick-dark);
-  stroke-width: 1.2;
+.tray .hint-copy {
+  margin: 0 0 8px;
+  color: #6d655c;
+  font-size: 0.9rem;
+  line-height: 1.4;
 }
 
 .hint-row {
@@ -339,13 +368,6 @@ path.placed {
   background: var(--ink);
   color: var(--foam);
   cursor: pointer;
-}
-
-.ghost-piece {
-  position: fixed;
-  z-index: 20;
-  pointer-events: none;
-  filter: drop-shadow(0 10px 16px rgba(0, 0, 0, 0.35));
 }
 
 .overlay {
@@ -411,7 +433,7 @@ path.placed {
   }
 
   .tray {
-    min-height: 220px;
+    min-height: 0;
   }
 
   .map-wrap,

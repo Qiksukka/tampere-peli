@@ -18,8 +18,8 @@ const I18N = {
     start: "Aloita",
     back: "Etusivu",
     lang: "In English",
-    drag: "Raahaa palanen kartalle — tai napauta oikeaa aluetta",
-    next: "Seuraava",
+    drag: "Napauta oikeaa paikkaa kartalla",
+    next: "Sijoita",
     placed: "Paikoillaan",
     time: "Aika",
     hint: "Vihje",
@@ -27,6 +27,7 @@ const I18N = {
     wrong: "Ei osunut — kokeile toisaalle",
     done: "Kaikki paikoillaan!",
     again: "Uusi peli",
+    landmarks: "Koski, tornit ja järvet auttavat suuntaamaan.",
     source:
       "Kartta: Tampereen kaupungin avoin data (suunnittelualueet ja tilastoalueet), CC BY 4.0.",
     result: (t, misses, hints) =>
@@ -38,8 +39,8 @@ const I18N = {
     start: "Play",
     back: "Home",
     lang: "Suomeksi",
-    drag: "Drag the piece onto the map — or tap the right area",
-    next: "Up next",
+    drag: "Tap the right place on the map",
+    next: "Place",
     placed: "Placed",
     time: "Time",
     hint: "Hint",
@@ -47,6 +48,7 @@ const I18N = {
     wrong: "Not quite — try another spot",
     done: "Every district is home!",
     again: "Play again",
+    landmarks: "Use the rapids, towers and lakes to get your bearings.",
     source:
       "Map: City of Tampere open data (planning and statistical areas), CC BY 4.0.",
     result: (t, misses, hints) =>
@@ -70,29 +72,12 @@ const state = {
   misses: 0,
   hints: 0,
   timer: null,
-  dragging: null,
 };
 
 function colorFor(id) {
   let h = 0;
   for (const ch of id) h = (h * 33 + ch.charCodeAt(0)) >>> 0;
   return PALETTE[h % PALETTE.length];
-}
-
-function pathBounds(path) {
-  const nums = [...path.matchAll(/-?\d*\.?\d+/g)].map(Number);
-  const xs = [];
-  const ys = [];
-  for (let i = 0; i < nums.length; i += 2) {
-    xs.push(nums[i]);
-    ys.push(nums[i + 1]);
-  }
-  return {
-    minX: Math.min(...xs),
-    maxX: Math.max(...xs),
-    minY: Math.min(...ys),
-    maxY: Math.max(...ys),
-  };
 }
 
 function shuffle(list) {
@@ -118,20 +103,55 @@ function needle() {
   </svg>`;
 }
 
+function locName(obj) {
+  return obj[lang === "fi" ? "nameFi" : "nameEn"];
+}
+
+function landmarkOverlay() {
+  const lm = data.landmarks;
+  if (!lm) return "";
+  const waters = (lm.koski.waters || [])
+    .map((p) => `<path class="koski-water" d="${p}"></path>`)
+    .join("");
+  const places = lm.places
+    .map((p) => {
+      const mark =
+        p.icon === "tower"
+          ? `<polygon points="0,-10 2.4,-2 -2.4,-2"/><rect x="-0.8" y="-2" width="1.6" height="7"/>`
+          : `<circle r="2.5"/>`;
+      return `<g class="pin" transform="translate(${p.x},${p.y})">${mark}<text dy="-13">${locName(p)}</text></g>`;
+    })
+    .join("");
+  const lakes = lm.lakes
+    .map((l) => `<text class="lake-label" x="${l.x}" y="${l.y}">${locName(l)}</text>`)
+    .join("");
+  return `<g class="landmarks" pointer-events="none">
+    ${waters}
+    <path class="koski-line" d="${lm.koski.path}"></path>
+    <text class="koski-label" x="${lm.koski.x}" y="${lm.koski.y}" dx="-16">${locName(lm.koski)}</text>
+    ${lakes}
+    ${places}
+  </g>`;
+}
+
 function mapSvg(districts, opts = {}) {
   const [x, y, w, h] = data.viewBox;
+  const showTitles = opts.titles !== false;
   const paths = districts
     .map((d) => {
       const cls = opts.classFor ? opts.classFor(d) : "land";
       const color = opts.fillFor ? opts.fillFor(d) : "";
       const fill = color ? ` fill="${color}"` : "";
       const extra = opts.attrsFor ? opts.attrsFor(d) : "";
-      return `<path class="${cls}" d="${d.path}"${fill} data-id="${d.id}" ${extra}><title>${d.name}</title></path>`;
+      const title = showTitles ? `<title>${d.name}</title>` : "";
+      return `<path class="${cls}" d="${d.path}"${fill} data-id="${d.id}" ${extra}>${title}</path>`;
     })
     .join("");
+  const overlay = opts.landmarks === false ? "" : landmarkOverlay();
   return `<svg viewBox="${x} ${y} ${w} ${h}" role="img" aria-label="Tampere">
     <rect class="water-bg" x="${x}" y="${y}" width="${w}" height="${h}"></rect>
     ${paths}
+    ${overlay}
   </svg>`;
 }
 
@@ -139,10 +159,6 @@ function backdropDistricts() {
   return state.level === "hard"
     ? data.levels.hard.districts
     : data.levels.medium.districts;
-}
-
-function targetIds() {
-  return new Set(data.levels[state.level].districts.map((d) => d.id));
 }
 
 function renderHome() {
@@ -205,13 +221,6 @@ function renderGame() {
   const level = data.levels[state.level];
   const total = level.districts.length;
   const current = state.current;
-  const bounds = current ? pathBounds(current.path) : { minX: 0, maxX: 1, minY: 0, maxY: 1 };
-  const pad = 8;
-  const vb = `${bounds.minX - pad} ${bounds.minY - pad} ${
-    bounds.maxX - bounds.minX + pad * 2
-  } ${bounds.maxY - bounds.minY + pad * 2}`;
-
-  const targets = targetIds();
   const mapDistricts = backdropDistricts();
 
   app.innerHTML = `
@@ -226,26 +235,17 @@ function renderGame() {
     <section class="play">
       <div class="map-wrap" id="map">
         ${mapSvg(mapDistricts, {
-          classFor: (d) => {
-            if (state.placed.has(d.id)) return "placed";
-            if (targets.has(d.id)) return "slot";
-            return "land";
-          },
+          titles: false,
+          classFor: (d) => (state.placed.has(d.id) ? "placed" : "slot"),
           fillFor: (d) => (state.placed.has(d.id) ? colorFor(d.id) : ""),
-          attrsFor: (d) => (targets.has(d.id) && !state.placed.has(d.id) ? 'data-slot="1"' : ""),
+          attrsFor: (d) => (state.placed.has(d.id) ? "" : 'data-slot="1"'),
         })}
       </div>
       <aside class="tray">
         <p class="kicker">${copy.next}</p>
         <h2>${current ? current.name : "—"}</h2>
-        <p class="kicker">${copy.drag}</p>
-        ${
-          current
-            ? `<div class="piece" id="piece" title="${current.name}">
-                <svg viewBox="${vb}"><path d="${current.path}"></path></svg>
-              </div>`
-            : ""
-        }
+        <p class="prompt">${copy.drag}</p>
+        <p class="hint-copy">${copy.landmarks}</p>
         <div class="hint-row">
           <button type="button" data-act="hint">${copy.hint}</button>
         </div>
@@ -257,7 +257,6 @@ function renderGame() {
 
 function bindMap() {
   const map = document.getElementById("map");
-  const piece = document.getElementById("piece");
   if (!map) return;
 
   map.addEventListener("click", (e) => {
@@ -271,43 +270,6 @@ function bindMap() {
     const slot = e.target.closest("[data-slot]");
     if (slot) slot.classList.add("is-hot");
   });
-
-  if (!piece) return;
-
-  piece.addEventListener("pointerdown", (e) => {
-    if (!state.current) return;
-    e.preventDefault();
-    piece.setPointerCapture(e.pointerId);
-    const ghost = document.createElement("div");
-    ghost.className = "ghost-piece";
-    ghost.innerHTML = piece.innerHTML;
-    ghost.style.width = "180px";
-    document.body.appendChild(ghost);
-    state.dragging = { ghost, pointerId: e.pointerId };
-    moveGhost(e);
-  });
-
-  piece.addEventListener("pointermove", (e) => {
-    if (!state.dragging) return;
-    moveGhost(e);
-  });
-
-  piece.addEventListener("pointerup", (e) => {
-    if (!state.dragging) return;
-    const { ghost } = state.dragging;
-    ghost.remove();
-    state.dragging = null;
-    const under = document.elementFromPoint(e.clientX, e.clientY);
-    const slot = under?.closest?.("[data-slot]");
-    if (slot) tryPlace(slot.dataset.id);
-  });
-}
-
-function moveGhost(e) {
-  const g = state.dragging?.ghost;
-  if (!g) return;
-  g.style.left = `${e.clientX - 90}px`;
-  g.style.top = `${e.clientY - 90}px`;
 }
 
 function tryPlace(id) {
