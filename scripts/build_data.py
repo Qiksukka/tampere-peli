@@ -26,19 +26,22 @@ NORTH_STATS = {
 }
 
 EASY_IDS = [
-    "pispala",
-    "hervanta-pohjoinen",
-    "hervanta-etela",
-    "kaleva",
-    "tammela",
-    "amuri",
-    "tesoma",
-    "lentavanniemi",
-    "pyynikki",
-    "hatanpaa",
-    "vuores",
+    "kyttala",
     "finlayson",
+    "nalkala-ratina",
+    "tammela",
+    "tampella-lapinniemi",
+    "amuri",
+    "hatanpaa",
+    "nekala",
+    "petsamo",
+    "pyynikki",
+    "kaleva",
+    "pispala",
+    "kalevanharju",
+    "kissanmaa",
 ]
+EASY_PICK = 10
 
 LAT0 = 61.498
 LON0 = 23.76
@@ -291,10 +294,43 @@ PLACES = [
     {"id": "tampere-talo", "nameFi": "Tampere-talo", "nameEn": "Tampere Hall", "lon": 23.782356, "lat": 61.495891, "icon": "dot"},
 ]
 
-LAKES = [
-    {"id": "nasijarvi", "nameFi": "Näsijärvi", "nameEn": "Näsijärvi", "lon": 23.772, "lat": 61.516},
-    {"id": "pyhajarvi", "nameFi": "Pyhäjärvi", "nameEn": "Pyhäjärvi", "lon": 23.748, "lat": 61.478},
-]
+LAKE_LABELS = {
+    "Näsijärvi": {"id": "nasijarvi", "nameFi": "Näsijärvi", "nameEn": "Näsijärvi", "lon": 23.742, "lat": 61.513},
+    "Pyhäjärvi": {"id": "pyhajarvi", "nameFi": "Pyhäjärvi", "nameEn": "Pyhäjärvi", "lon": 23.718, "lat": 61.478},
+}
+
+
+def lake_features(sx, sy, ox, oy):
+    src = ROOT / "data" / "lakes.json"
+    if not src.exists():
+        return []
+    raw = json.loads(src.read_text())
+    lakes = []
+    for name, rings in raw.items():
+        meta = LAKE_LABELS[name]
+        paths = [ring_path(ring, sx, sy, ox, oy) for ring in rings if len(ring) >= 4]
+        x, y = svg_xy(meta["lon"], meta["lat"], sx, sy, ox, oy)
+        lakes.append(
+            {
+                "id": meta["id"],
+                "nameFi": meta["nameFi"],
+                "nameEn": meta["nameEn"],
+                "paths": paths,
+                "x": x,
+                "y": y,
+            }
+        )
+    return lakes
+
+
+def path_viewbox(districts, pad=36):
+    xs, ys = [], []
+    for d in districts:
+        nums = [float(n) for n in re.findall(r"-?\d+\.?\d*", d["path"])]
+        xs.extend(nums[0::2])
+        ys.extend(nums[1::2])
+    minx, maxx, miny, maxy = min(xs) - pad, max(xs) + pad, min(ys) - pad, max(ys) + pad
+    return [round(minx, 2), round(miny, 2), round(maxx - minx, 2), round(maxy - miny, 2)]
 
 
 def landmarks(sx, sy, ox, oy):
@@ -307,10 +343,6 @@ def landmarks(sx, sy, ox, oy):
     for p in PLACES:
         x, y = svg_xy(p["lon"], p["lat"], sx, sy, ox, oy)
         places.append({k: p[k] for k in ("id", "nameFi", "nameEn", "icon")} | {"x": x, "y": y})
-    lakes = []
-    for lake in LAKES:
-        x, y = svg_xy(lake["lon"], lake["lat"], sx, sy, ox, oy)
-        lakes.append({k: lake[k] for k in ("id", "nameFi", "nameEn")} | {"x": x, "y": y})
     koski_label = svg_xy(23.7618, 61.4996, sx, sy, ox, oy)
     return {
         "koski": {
@@ -321,7 +353,7 @@ def landmarks(sx, sy, ox, oy):
             "x": koski_label[0],
             "y": koski_label[1],
         },
-        "lakes": lakes,
+        "lakes": lake_features(sx, sy, ox, oy),
         "places": places,
     }
 
@@ -344,8 +376,10 @@ def main():
             "easy": {
                 "labelFi": "Helppo",
                 "labelEn": "Easy",
-                "blurbFi": "12 tunnettua kaupunginosaa",
-                "blurbEn": "12 well-known districts",
+                "blurbFi": "Satunnainen kymmenikko kosken seudulta",
+                "blurbEn": "Ten random districts around the rapids",
+                "pick": EASY_PICK,
+                "viewBox": path_viewbox(easy),
                 "districts": easy,
             },
             "medium": {

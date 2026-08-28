@@ -23,6 +23,20 @@ const I18N = {
     placed: "Paikoillaan",
     time: "Aika",
     hint: "Vihje",
+    clueAlong: "Ihan Tammerkosken varrella.",
+    clueDir: {
+      N: "Pohjoiseen koskesta.",
+      NE: "Koilliseen koskesta.",
+      E: "Itään koskesta.",
+      SE: "Kaakkoon koskesta.",
+      S: "Etelään koskesta.",
+      SW: "Lounaaseen koskesta.",
+      W: "Länteen koskesta.",
+      NW: "Luoteeseen koskesta.",
+    },
+    clueNear: (name) => `Lähellä: ${name}.`,
+    clueNasijarvi: "Näsijärven puolella.",
+    cluePyhajarvi: "Pyhäjärven puolella.",
     skip: "Ohita",
     wrong: "Ei osunut — kokeile toisaalle",
     done: "Kaikki paikoillaan!",
@@ -44,6 +58,20 @@ const I18N = {
     placed: "Placed",
     time: "Time",
     hint: "Hint",
+    clueAlong: "Right along Tammerkoski.",
+    clueDir: {
+      N: "North of the rapids.",
+      NE: "Northeast of the rapids.",
+      E: "East of the rapids.",
+      SE: "Southeast of the rapids.",
+      S: "South of the rapids.",
+      SW: "Southwest of the rapids.",
+      W: "West of the rapids.",
+      NW: "Northwest of the rapids.",
+    },
+    clueNear: (name) => `Near ${name}.`,
+    clueNasijarvi: "On the Näsijärvi side.",
+    cluePyhajarvi: "On the Pyhäjärvi side.",
     skip: "Skip",
     wrong: "Not quite — try another spot",
     done: "Every district is home!",
@@ -71,6 +99,8 @@ const state = {
   elapsed: 0,
   misses: 0,
   hints: 0,
+  hintText: "",
+  hintDir: null,
   timer: null,
 };
 
@@ -113,6 +143,9 @@ function landmarkOverlay() {
   const waters = (lm.koski.waters || [])
     .map((p) => `<path class="koski-water" d="${p}"></path>`)
     .join("");
+  const lakeShapes = (lm.lakes || [])
+    .flatMap((l) => (l.paths || []).map((p) => `<path class="lake" d="${p}"></path>`))
+    .join("");
   const places = lm.places
     .map((p) => {
       const mark =
@@ -122,20 +155,36 @@ function landmarkOverlay() {
       return `<g class="pin" transform="translate(${p.x},${p.y})">${mark}<text dy="-13">${locName(p)}</text></g>`;
     })
     .join("");
-  const lakes = lm.lakes
+  const lakes = (lm.lakes || [])
     .map((l) => `<text class="lake-label" x="${l.x}" y="${l.y}">${locName(l)}</text>`)
     .join("");
+  const ray = hintRay();
   return `<g class="landmarks" pointer-events="none">
     ${waters}
+    ${lakeShapes}
     <path class="koski-line" d="${lm.koski.path}"></path>
+    ${ray}
     <text class="koski-label" x="${lm.koski.x}" y="${lm.koski.y}" dx="-16">${locName(lm.koski)}</text>
     ${lakes}
     ${places}
   </g>`;
 }
 
+function hintRay() {
+  if (!state.hintDir || !data.landmarks?.koski) return "";
+  const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const i = dirs.indexOf(state.hintDir);
+  if (i < 0) return "";
+  const rad = (i * Math.PI) / 4;
+  const k = data.landmarks.koski;
+  const len = 70;
+  const x2 = k.x + Math.sin(rad) * len;
+  const y2 = k.y - Math.cos(rad) * len;
+  return `<line class="hint-ray" x1="${k.x}" y1="${k.y}" x2="${x2}" y2="${y2}"></line>`;
+}
+
 function mapSvg(districts, opts = {}) {
-  const [x, y, w, h] = data.viewBox;
+  const [x, y, w, h] = opts.viewBox || data.viewBox;
   const showTitles = opts.titles !== false;
   const paths = districts
     .map((d) => {
@@ -186,7 +235,7 @@ function renderHome() {
               ([id, lvl]) => `
             <button class="level" data-act="play" data-level="${id}">
               <strong>${lvl[lang === "fi" ? "labelFi" : "labelEn"]}</strong>
-              <span>${lvl[lang === "fi" ? "blurbFi" : "blurbEn"]} · ${lvl.districts.length}</span>
+              <span>${lvl[lang === "fi" ? "blurbFi" : "blurbEn"]} · ${lvl.pick || lvl.districts.length}</span>
             </button>`
             )
             .join("")}
@@ -201,12 +250,16 @@ function startGame(level) {
   state.screen = "game";
   state.level = level;
   state.placed = new Set();
-  state.queue = shuffle(data.levels[level].districts);
+  const lvl = data.levels[level];
+  const pool = shuffle(lvl.districts);
+  state.queue = lvl.pick ? pool.slice(0, lvl.pick) : pool;
   state.current = state.queue[0];
   state.startedAt = Date.now();
   state.elapsed = 0;
   state.misses = 0;
   state.hints = 0;
+  state.hintText = "";
+  state.hintDir = null;
   clearInterval(state.timer);
   state.timer = setInterval(() => {
     state.elapsed = Date.now() - state.startedAt;
@@ -219,9 +272,10 @@ function startGame(level) {
 function renderGame() {
   const copy = t();
   const level = data.levels[state.level];
-  const total = level.districts.length;
+  const total = state.queue.length + state.placed.size;
   const current = state.current;
   const mapDistricts = backdropDistricts();
+  const viewBox = level.viewBox || data.viewBox;
 
   app.innerHTML = `
     <header class="game-header">
@@ -236,6 +290,7 @@ function renderGame() {
       <div class="map-wrap" id="map">
         ${mapSvg(mapDistricts, {
           titles: false,
+          viewBox,
           classFor: (d) => (state.placed.has(d.id) ? "placed" : "slot"),
           fillFor: (d) => (state.placed.has(d.id) ? colorFor(d.id) : ""),
           attrsFor: (d) => (state.placed.has(d.id) ? "" : 'data-slot="1"'),
@@ -245,7 +300,7 @@ function renderGame() {
         <p class="kicker">${copy.next}</p>
         <h2>${current ? current.name : "—"}</h2>
         <p class="prompt">${copy.drag}</p>
-        <p class="hint-copy">${copy.landmarks}</p>
+        <p class="hint-copy">${state.hintText || copy.landmarks}</p>
         <div class="hint-row">
           <button type="button" data-act="hint">${copy.hint}</button>
         </div>
@@ -279,6 +334,8 @@ function tryPlace(id) {
     const idx = state.queue.findIndex((d) => d.id === id);
     if (idx >= 0) state.queue.splice(idx, 1);
     state.current = state.queue[0] || null;
+    state.hintText = "";
+    state.hintDir = null;
     if (!state.current) {
       clearInterval(state.timer);
       renderGame();
@@ -297,14 +354,47 @@ function tryPlace(id) {
   toast(t().wrong);
 }
 
+function compassDir(dx, dy) {
+  const deg = ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360;
+  const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  return dirs[Math.round(deg / 45) % 8];
+}
+
+function clueFor(district) {
+  const copy = t();
+  const k = data.landmarks.koski;
+  const dx = district.cx - k.x;
+  const dy = district.cy - k.y;
+  const dist = Math.hypot(dx, dy);
+  const dir = compassDir(dx, dy);
+  const parts = [];
+  if (dist < 28) {
+    parts.push(copy.clueAlong);
+    state.hintDir = null;
+  } else {
+    parts.push(copy.clueDir[dir]);
+    state.hintDir = dir;
+  }
+  let nearest = null;
+  let nearestD = 58;
+  for (const p of data.landmarks.places) {
+    const pd = Math.hypot(district.cx - p.x, district.cy - p.y);
+    if (pd < nearestD) {
+      nearestD = pd;
+      nearest = p;
+    }
+  }
+  if (nearest) parts.push(copy.clueNear(locName(nearest)));
+  if (district.cy < k.y - 28) parts.push(copy.clueNasijarvi);
+  if (district.cy > k.y + 36) parts.push(copy.cluePyhajarvi);
+  return parts.join(" ");
+}
+
 function showHint() {
   if (!state.current) return;
   state.hints += 1;
-  const slot = document.querySelector(`[data-id="${state.current.id}"]`);
-  if (!slot) return;
-  slot.classList.add("is-hint");
-  slot.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
-  setTimeout(() => slot.classList.remove("is-hint"), 1400);
+  state.hintText = clueFor(state.current);
+  renderGame();
 }
 
 function showWin() {
@@ -336,6 +426,7 @@ app.addEventListener("click", (e) => {
   const act = btn.dataset.act;
   if (act === "lang") {
     lang = lang === "fi" ? "en" : "fi";
+    if (state.hintText && state.current) state.hintText = clueFor(state.current);
     if (state.screen === "home") renderHome();
     else renderGame();
   }

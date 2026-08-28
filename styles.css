@@ -271,29 +271,49 @@ path.placed {
 }
 
 .koski-water {
-  fill: var(--water);
+  fill: #1c5c68;
+}
+
+.lake {
+  fill: #2a8a9a;
+  fill-opacity: 0.92;
+  stroke: #9fe3ec;
+  stroke-width: 1.4;
 }
 
 .koski-line {
   fill: none;
-  stroke: #8ed4de;
-  stroke-width: 2.6;
+  stroke: #b7f0f6;
+  stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
+.hint-ray {
+  stroke: var(--gold);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
 .koski-label,
 .lake-label {
-  fill: #c5eef3;
+  fill: #e9fbff;
   font-family: Fraunces, Georgia, serif;
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: 15px;
+  letter-spacing: 0.14em;
   text-anchor: middle;
+  paint-order: stroke;
+  stroke: #0c3d46;
+  stroke-width: 3.2px;
+  stroke-linejoin: round;
 }
 
 .koski-label {
-  font-size: 10px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
   fill: #f0d48a;
+  stroke: #1a1714;
 }
 
 .pin circle,
