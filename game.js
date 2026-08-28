@@ -153,10 +153,13 @@ function landmarkOverlay() {
   const lm = data.landmarks;
   if (!lm) return "";
   const places = (lm.places || [])
-    .map(
-      (p) =>
-        `<circle class="pin-dot" cx="${p.x}" cy="${p.y}" r="1.6"><title>${locName(p)}</title></circle>`
-    )
+    .map((p) => {
+      const label = shortPlace(p);
+      return `<g class="pin" transform="translate(${p.x},${p.y})">
+        <circle class="pin-dot" r="2"></circle>
+        <text class="pin-label" x="${label.dx}" y="${label.dy}" text-anchor="${label.anchor}">${label.text}</text>
+      </g>`;
+    })
     .join("");
   const lakes = (lm.lakes || [])
     .map((l) => `<text class="lake-label" x="${l.x}" y="${l.y}">${locName(l)}</text>`)
@@ -164,10 +167,29 @@ function landmarkOverlay() {
   return `<g class="landmarks" pointer-events="none">
       <path class="koski-line" d="${lm.koski.path}"></path>
       ${hintRay()}
-      <text class="koski-label" x="${lm.koski.x}" y="${lm.koski.y}" dx="-10">${locName(lm.koski)}</text>
+      <text class="koski-label" x="${lm.koski.x}" y="${lm.koski.y}" dx="-8">${locName(lm.koski)}</text>
       ${lakes}
       ${places}
     </g>`;
+}
+
+function shortPlace(p) {
+  const shorts = {
+    nasinneula: { fi: "Näsinneula", en: "Näsinneula", dx: -4, dy: -3.5, anchor: "end" },
+    "pyynikki-tower": { fi: "Pyynikki", en: "Pyynikki", dx: -4, dy: 7, anchor: "end" },
+    asema: { fi: "Asema", en: "Station", dx: 4, dy: -3.5, anchor: "start" },
+    "nokia-arena": { fi: "Arena", en: "Arena", dx: 4, dy: 7, anchor: "start" },
+    ratina: { fi: "Ratina", en: "Ratina", dx: -4, dy: 7, anchor: "end" },
+    "tampere-talo": { fi: "Tampere-talo", en: "Tampere Hall", dx: 4, dy: -3.5, anchor: "start" },
+  };
+  const s = shorts[p.id] || {
+    fi: p.nameFi,
+    en: p.nameEn,
+    dx: 4,
+    dy: -3.5,
+    anchor: "start",
+  };
+  return { text: lang === "fi" ? s.fi : s.en, dx: s.dx, dy: s.dy, anchor: s.anchor };
 }
 
 function hintRay() {

@@ -297,25 +297,37 @@ path.placed {
 
 .koski-label,
 .lake-label {
-  fill: #d7eef2;
+  fill: #cfe6ea;
   font-family: Fraunces, Georgia, serif;
-  font-size: 9px;
-  letter-spacing: 0.16em;
+  font-size: 11px;
+  letter-spacing: 0.18em;
   text-anchor: middle;
-  opacity: 0.7;
+  opacity: 0.62;
 }
 
 .koski-label {
-  font-size: 8px;
-  letter-spacing: 0.06em;
-  fill: #e8d7a4;
-  opacity: 0.8;
+  font-family: Outfit, "Segoe UI", sans-serif;
+  font-size: 7.5px;
+  letter-spacing: 0.04em;
+  fill: #c4a056;
+  opacity: 0.9;
 }
 
 .pin-dot {
-  fill: #e2b45a;
-  stroke: none;
-  opacity: 0.85;
+  fill: #c8963a;
+  stroke: #f4ead8;
+  stroke-width: 0.6;
+}
+
+.pin-label {
+  font-family: Outfit, "Segoe UI", sans-serif;
+  font-size: 7px;
+  font-weight: 500;
+  fill: #3f3832;
+  paint-order: stroke;
+  stroke: #f4ead8;
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
 }
 
 .tray {
