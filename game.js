@@ -137,37 +137,37 @@ function locName(obj) {
   return obj[lang === "fi" ? "nameFi" : "nameEn"];
 }
 
-function landmarkOverlay() {
+function waterLayer() {
   const lm = data.landmarks;
   if (!lm) return "";
   const waters = (lm.koski.waters || [])
     .map((p) => `<path class="koski-water" d="${p}"></path>`)
     .join("");
-  const lakeShapes = (lm.lakes || [])
+  const lakes = (lm.lakes || [])
     .flatMap((l) => (l.paths || []).map((p) => `<path class="lake" d="${p}"></path>`))
     .join("");
-  const places = lm.places
-    .map((p) => {
-      const mark =
-        p.icon === "tower"
-          ? `<polygon points="0,-10 2.4,-2 -2.4,-2"/><rect x="-0.8" y="-2" width="1.6" height="7"/>`
-          : `<circle r="2.5"/>`;
-      return `<g class="pin" transform="translate(${p.x},${p.y})">${mark}<text dy="-13">${locName(p)}</text></g>`;
-    })
+  return `<g class="water-layer" pointer-events="none">${lakes}${waters}</g>`;
+}
+
+function landmarkOverlay() {
+  const lm = data.landmarks;
+  if (!lm) return "";
+  const places = (lm.places || [])
+    .map(
+      (p) =>
+        `<circle class="pin-dot" cx="${p.x}" cy="${p.y}" r="1.6"><title>${locName(p)}</title></circle>`
+    )
     .join("");
   const lakes = (lm.lakes || [])
     .map((l) => `<text class="lake-label" x="${l.x}" y="${l.y}">${locName(l)}</text>`)
     .join("");
-  const ray = hintRay();
   return `<g class="landmarks" pointer-events="none">
-    ${waters}
-    ${lakeShapes}
-    <path class="koski-line" d="${lm.koski.path}"></path>
-    ${ray}
-    <text class="koski-label" x="${lm.koski.x}" y="${lm.koski.y}" dx="-16">${locName(lm.koski)}</text>
-    ${lakes}
-    ${places}
-  </g>`;
+      <path class="koski-line" d="${lm.koski.path}"></path>
+      ${hintRay()}
+      <text class="koski-label" x="${lm.koski.x}" y="${lm.koski.y}" dx="-10">${locName(lm.koski)}</text>
+      ${lakes}
+      ${places}
+    </g>`;
 }
 
 function hintRay() {
@@ -197,8 +197,10 @@ function mapSvg(districts, opts = {}) {
     })
     .join("");
   const overlay = opts.landmarks === false ? "" : landmarkOverlay();
+  const water = opts.landmarks === false ? "" : waterLayer();
   return `<svg viewBox="${x} ${y} ${w} ${h}" role="img" aria-label="Tampere">
     <rect class="water-bg" x="${x}" y="${y}" width="${w}" height="${h}"></rect>
+    ${water}
     ${paths}
     ${overlay}
   </svg>`;

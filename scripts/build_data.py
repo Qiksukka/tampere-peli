@@ -80,6 +80,86 @@ def walk_coords(geom):
     raise ValueError(t)
 
 
+def _as_polygon(rings):
+    from shapely.geometry import Polygon
+    from shapely.validation import make_valid
+
+    if not rings or len(rings[0]) < 4:
+        return None
+    exterior = [(float(x), float(y)) for x, y in rings[0]]
+    holes = []
+    for ring in rings[1:]:
+        if len(ring) >= 4:
+            holes.append([(float(x), float(y)) for x, y in ring])
+    poly = Polygon(exterior, holes)
+    if poly.is_empty:
+        return None
+    if not poly.is_valid:
+        poly = make_valid(poly)
+    return poly
+
+
+def coords_to_shape(polygons):
+    from shapely.ops import unary_union
+
+    parts = []
+    for rings in polygons:
+        poly = _as_polygon(rings)
+        if poly is not None and not poly.is_empty:
+            parts.append(poly)
+    if not parts:
+        return None
+    return unary_union(parts)
+
+
+def shape_to_coords(geom):
+    if geom is None or geom.is_empty:
+        return []
+    out = []
+
+    def add_poly(p):
+        if p.is_empty or p.area <= 0:
+            return
+        rings = [list(p.exterior.coords)]
+        rings.extend(list(i.coords) for i in p.interiors)
+        out.append(rings)
+
+    gtype = geom.geom_type
+    if gtype == "Polygon":
+        add_poly(geom)
+    elif gtype == "MultiPolygon":
+        for p in geom.geoms:
+            add_poly(p)
+    elif gtype == "GeometryCollection":
+        for g in geom.geoms:
+            out.extend(shape_to_coords(g))
+    return out
+
+
+def water_union():
+    from shapely.ops import unary_union
+
+    parts = []
+    lakes = ROOT / "data" / "lakes.json"
+    if lakes.exists():
+        raw = json.loads(lakes.read_text())
+        for rings in raw.values():
+            for ring in rings:
+                poly = _as_polygon([ring])
+                if poly is not None:
+                    parts.append(poly)
+    koski = Path("/tmp/koski.json")
+    if koski.exists():
+        raw = json.loads(koski.read_text())
+        for ring in raw.get("polys", []):
+            poly = _as_polygon([ring])
+            if poly is not None:
+                parts.append(poly)
+    if not parts:
+        return None
+    return unary_union(parts)
+
+
 def project(lon: float, lat: float) -> tuple[float, float]:
     return (lon - LON0) * KX, (LAT0 - lat) * KY
 
@@ -167,15 +247,21 @@ def to_path(polygons, sx, sy, ox, oy) -> str:
     return " ".join(parts)
 
 
-def process(raw_path: Path, skip_names: set[str]):
+def process(raw_path: Path, skip_names: set[str], water=None):
     data = json.loads(raw_path.read_text())
     features = []
     for feat in data["features"]:
         name = feat["properties"]["NIMI"]
         if name in skip_names:
             continue
+        land = coords_to_shape(walk_coords(feat["geometry"]))
+        if land is None or land.is_empty:
+            continue
+        if water is not None and not water.is_empty:
+            land = land.difference(water)
+        polys_ll = shape_to_coords(land)
         polys = []
-        for poly in walk_coords(feat["geometry"]):
+        for poly in polys_ll:
             rings = []
             for ring in poly:
                 proj = [project(lon, lat) for lon, lat in ring]
@@ -186,7 +272,6 @@ def process(raw_path: Path, skip_names: set[str]):
                 polys.append(rings)
         if not polys:
             continue
-        # centroid/area from outer rings
         total_a = 0.0
         cx = cy = 0.0
         for poly in polys:
@@ -359,8 +444,9 @@ def landmarks(sx, sy, ox, oy):
 
 
 def main():
-    planning = process(Path("/tmp/suunn.geojson"), NORTH_PLANNING)
-    stats = process(Path("/tmp/tilasto.geojson"), NORTH_STATS)
+    water = water_union()
+    planning = process(Path("/tmp/suunn.geojson"), NORTH_PLANNING, water)
+    stats = process(Path("/tmp/tilasto.geojson"), NORTH_STATS, water)
     sx, sy, ox, oy, width, height = fit(planning + stats)
 
     easy = [d for d in packed(planning, sx, sy, ox, oy) if d["id"] in EASY_IDS]

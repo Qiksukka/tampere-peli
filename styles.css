@@ -275,65 +275,47 @@ path.placed {
 }
 
 .lake {
-  fill: #2a8a9a;
-  fill-opacity: 0.92;
-  stroke: #9fe3ec;
-  stroke-width: 1.4;
+  fill: #247888;
+  stroke: none;
 }
 
 .koski-line {
   fill: none;
-  stroke: #b7f0f6;
-  stroke-width: 3;
+  stroke: #9adbe4;
+  stroke-width: 1.4;
   stroke-linecap: round;
   stroke-linejoin: round;
+  opacity: 0.85;
 }
 
 .hint-ray {
   stroke: var(--gold);
-  stroke-width: 3.2;
+  stroke-width: 2;
   stroke-linecap: round;
-  opacity: 0.85;
+  opacity: 0.7;
 }
 
 .koski-label,
 .lake-label {
-  fill: #e9fbff;
+  fill: #d7eef2;
   font-family: Fraunces, Georgia, serif;
-  font-size: 15px;
-  letter-spacing: 0.14em;
+  font-size: 9px;
+  letter-spacing: 0.16em;
   text-anchor: middle;
-  paint-order: stroke;
-  stroke: #0c3d46;
-  stroke-width: 3.2px;
-  stroke-linejoin: round;
+  opacity: 0.7;
 }
 
 .koski-label {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  fill: #f0d48a;
-  stroke: #1a1714;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  fill: #e8d7a4;
+  opacity: 0.8;
 }
 
-.pin circle,
-.pin rect {
-  fill: var(--gold);
-}
-
-.pin polygon {
-  fill: var(--foam);
-}
-
-.pin text {
-  fill: var(--foam);
-  font-family: Outfit, "Segoe UI", sans-serif;
-  font-size: 8.5px;
-  text-anchor: middle;
-  paint-order: stroke;
-  stroke: #0c272e;
-  stroke-width: 2.6px;
-  stroke-linejoin: round;
+.pin-dot {
+  fill: #e2b45a;
+  stroke: none;
+  opacity: 0.85;
 }
 
 .tray {
