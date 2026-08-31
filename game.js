@@ -39,7 +39,10 @@ const I18N = {
     cluePyhajarvi: "Pyhäjärven puolella.",
     skip: "Ohita",
     tries: "Arvaukset",
+    lives: "Elämät",
     score: "Pisteet",
+    zoomIn: "Lähennä",
+    zoomOut: "Loitonna",
     wrong: "Ei osunut — kokeile toisaalle",
     outOfGuesses: "Arvaukset loppuivat",
     done: "Kaikki paikoillaan!",
@@ -78,7 +81,10 @@ const I18N = {
     cluePyhajarvi: "On the Pyhäjärvi side.",
     skip: "Skip",
     tries: "Guesses",
+    lives: "Lives",
     score: "Score",
+    zoomIn: "Zoom in",
+    zoomOut: "Zoom out",
     wrong: "Not quite — try another spot",
     outOfGuesses: "No guesses left",
     done: "Every district is home!",
@@ -121,6 +127,7 @@ const state = {
   hintText: "",
   hintDir: null,
   timer: null,
+  mapZoom: 1,
 };
 
 function colorFor(id) {
@@ -239,7 +246,8 @@ function mapSvg(districts, opts = {}) {
     .join("");
   const overlay = opts.landmarks === false ? "" : landmarkOverlay();
   const water = opts.landmarks === false ? "" : waterLayer();
-  return `<svg viewBox="${x} ${y} ${w} ${h}" role="img" aria-label="Tampere">
+  const zoom = state.mapZoom || 1;
+  return `<svg viewBox="${x} ${y} ${w} ${h}" role="img" aria-label="Tampere" style="width:${zoom * 100}%; height:${zoom * 100}%">
     <rect class="water-bg" x="${x}" y="${y}" width="${w}" height="${h}"></rect>
     ${water}
     ${paths}
@@ -256,6 +264,7 @@ function backdropDistricts() {
 function renderHome() {
   const copy = t();
   const poster = data.levels.medium.districts;
+  app.className = "is-home";
   app.innerHTML = `
     <header class="topbar">
       <div class="brand">${needle()}
@@ -309,6 +318,7 @@ function startGame(level) {
   state.hints = 0;
   state.hintText = "";
   state.hintDir = null;
+  state.mapZoom = 1;
   clearInterval(state.timer);
   state.timer = setInterval(() => {
     state.elapsed = Date.now() - state.startedAt;
@@ -316,6 +326,29 @@ function startGame(level) {
     if (el) el.textContent = fmt(state.elapsed);
   }, 250);
   renderGame();
+}
+
+function livesHtml() {
+  const copy = t();
+  const hearts = Array.from({ length: MAX_TRIES }, (_, i) => {
+    const on = i < state.triesLeft;
+    return `<svg class="heart ${on ? "is-on" : "is-off"}" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M8 14S1.8 10 1.8 6.4C1.8 4.3 3.4 3 5.2 3c1.1 0 2 .6 2.8 1.6C8.8 3.6 9.7 3 10.8 3c1.8 0 3.4 1.3 3.4 3.4C14.2 10 8 14 8 14z"/>
+    </svg>`;
+  }).join("");
+  return `<div class="lives" id="tries" role="img" aria-label="${copy.lives} ${state.triesLeft}/${MAX_TRIES}">${hearts}</div>`;
+}
+
+function changeMapZoom(delta) {
+  const wrap = document.getElementById("map");
+  const cx = wrap ? (wrap.scrollLeft + wrap.clientWidth / 2) / Math.max(wrap.scrollWidth, 1) : 0.5;
+  const cy = wrap ? (wrap.scrollTop + wrap.clientHeight / 2) / Math.max(wrap.scrollHeight, 1) : 0.5;
+  state.mapZoom = Math.min(3, Math.max(1, +(state.mapZoom + delta).toFixed(2)));
+  renderGame();
+  const next = document.getElementById("map");
+  if (!next) return;
+  next.scrollLeft = cx * next.scrollWidth - next.clientWidth / 2;
+  next.scrollTop = cy * next.scrollHeight - next.clientHeight / 2;
 }
 
 function renderGame() {
@@ -326,19 +359,25 @@ function renderGame() {
   const mapDistricts = backdropDistricts();
   const viewBox = level.viewBox || data.viewBox;
 
+  app.className = "is-game";
   app.innerHTML = `
     <header class="game-header">
       <button class="ghost" data-act="home" type="button">${copy.back}</button>
-      <span class="stat">${level[lang === "fi" ? "labelFi" : "labelEn"]}</span>
-      <span class="stat" id="clock">${fmt(state.elapsed)}</span>
-      <span class="stat">${copy.placed} ${state.placed.size}/${total}</span>
-      <span class="stat" id="tries">${copy.tries} ${state.triesLeft}/${MAX_TRIES}</span>
+      ${livesHtml()}
       <span class="stat" id="score">${copy.score} ${state.score}</span>
-      <div class="spacer"></div>
+      <span class="stat" id="clock">${fmt(state.elapsed)}</span>
+      <span class="stat hide-narrow">${level[lang === "fi" ? "labelFi" : "labelEn"]}</span>
+      <span class="stat">${copy.placed} ${state.placed.size}/${total}</span>
+      <span class="spacer"></span>
       <button class="lang" data-act="lang" type="button">${copy.lang}</button>
     </header>
     <section class="play">
-      <div class="map-wrap" id="map">
+      <div class="map-panel">
+        <div class="map-tools">
+          <button type="button" data-act="zoom-in" ${state.mapZoom >= 3 ? "disabled" : ""} aria-label="${copy.zoomIn}">+</button>
+          <button type="button" data-act="zoom-out" ${state.mapZoom <= 1 ? "disabled" : ""} aria-label="${copy.zoomOut}">−</button>
+        </div>
+        <div class="map-wrap" id="map">
         ${mapSvg(mapDistricts, {
           titles: false,
           viewBox,
@@ -350,6 +389,7 @@ function renderGame() {
           fillFor: (d) => (state.placed.has(d.id) ? colorFor(d.id) : ""),
           attrsFor: (d) => (state.placed.has(d.id) ? "" : 'data-slot="1"'),
         })}
+        </div>
       </div>
       <aside class="tray">
         <p class="kicker">${copy.next}</p>
@@ -425,9 +465,14 @@ function tryPlace(id) {
     finishRound();
     return;
   }
-  const tries = document.getElementById("tries");
-  if (tries) tries.textContent = `${t().tries} ${state.triesLeft}/${MAX_TRIES}`;
+  updateLives();
   toast(t().wrong);
+}
+
+function updateLives() {
+  const el = document.getElementById("tries");
+  if (!el) return;
+  el.outerHTML = livesHtml();
 }
 
 function finishRound() {
@@ -533,6 +578,8 @@ app.addEventListener("click", (e) => {
   }
   if (act === "hint") showHint();
   if (act === "skip") skipDistrict();
+  if (act === "zoom-in") changeMapZoom(0.4);
+  if (act === "zoom-out") changeMapZoom(-0.4);
   if (act === "replay") startGame(state.level);
 });
 
