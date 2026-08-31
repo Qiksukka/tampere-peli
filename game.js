@@ -38,19 +38,18 @@ const I18N = {
     clueNasijarvi: "Näsijärven puolella.",
     cluePyhajarvi: "Pyhäjärven puolella.",
     skip: "Ohita",
-    tries: "Yritykset",
+    tries: "Arvaukset",
+    score: "Pisteet",
     wrong: "Ei osunut — kokeile toisaalle",
-    missed: "Viisi yritystä täynnä — seuraava",
+    outOfGuesses: "Arvaukset loppuivat",
     done: "Kaikki paikoillaan!",
     finished: "Kierros ohi",
     again: "Uusi peli",
     landmarks: "Koski, tornit ja järvet auttavat suuntaamaan.",
     source:
       "Kartta: Tampereen kaupungin avoin data (suunnittelualueet ja tilastoalueet), CC BY 4.0.",
-    result: (t, misses, hints) =>
-      `Aika ${t}. Väärät yritykset ${misses}, vihjeitä ${hints}.`,
-    resultPartial: (placed, total, t, misses, hints) =>
-      `Löysit ${placed}/${total}. Aika ${t}. Väärät yritykset ${misses}, vihjeitä ${hints}.`,
+    result: (score, found, skipped, t, misses, hints) =>
+      `${score} pistettä. Löysit ${found}, ohitit ${skipped}. Aika ${t}. Väärät ${misses}, vihjeitä ${hints}.`,
   },
   en: {
     title: "Tampere puzzle",
@@ -78,23 +77,25 @@ const I18N = {
     clueNasijarvi: "On the Näsijärvi side.",
     cluePyhajarvi: "On the Pyhäjärvi side.",
     skip: "Skip",
-    tries: "Tries",
+    tries: "Guesses",
+    score: "Score",
     wrong: "Not quite — try another spot",
-    missed: "Five tries used — next district",
+    outOfGuesses: "No guesses left",
     done: "Every district is home!",
     finished: "Round over",
     again: "Play again",
     landmarks: "Use the rapids, towers and lakes to get your bearings.",
     source:
       "Map: City of Tampere open data (planning and statistical areas), CC BY 4.0.",
-    result: (t, misses, hints) =>
-      `Time ${t}. Misses ${misses}, hints ${hints}.`,
-    resultPartial: (placed, total, t, misses, hints) =>
-      `You found ${placed}/${total}. Time ${t}. Misses ${misses}, hints ${hints}.`,
+    result: (score, found, skipped, t, misses, hints) =>
+      `${score} points. Found ${found}, skipped ${skipped}. Time ${t}. Misses ${misses}, hints ${hints}.`,
   },
 };
 
 const MAX_TRIES = 5;
+const SCORE_FOUND = 100;
+const SCORE_HINTED = 40;
+const SCORE_GUESS_LEFT = 25;
 
 const app = document.getElementById("app");
 let data = null;
@@ -112,6 +113,10 @@ const state = {
   misses: 0,
   triesLeft: MAX_TRIES,
   roundTotal: 0,
+  score: 0,
+  found: new Set(),
+  skipped: new Set(),
+  hintedCurrent: false,
   hints: 0,
   hintText: "",
   hintDir: null,
@@ -297,6 +302,10 @@ function startGame(level) {
   state.elapsed = 0;
   state.misses = 0;
   state.triesLeft = MAX_TRIES;
+  state.score = 0;
+  state.found = new Set();
+  state.skipped = new Set();
+  state.hintedCurrent = false;
   state.hints = 0;
   state.hintText = "";
   state.hintDir = null;
@@ -324,6 +333,7 @@ function renderGame() {
       <span class="stat" id="clock">${fmt(state.elapsed)}</span>
       <span class="stat">${copy.placed} ${state.placed.size}/${total}</span>
       <span class="stat" id="tries">${copy.tries} ${state.triesLeft}/${MAX_TRIES}</span>
+      <span class="stat" id="score">${copy.score} ${state.score}</span>
       <div class="spacer"></div>
       <button class="lang" data-act="lang" type="button">${copy.lang}</button>
     </header>
@@ -332,7 +342,11 @@ function renderGame() {
         ${mapSvg(mapDistricts, {
           titles: false,
           viewBox,
-          classFor: (d) => (state.placed.has(d.id) ? "placed" : "slot"),
+          classFor: (d) => {
+            if (state.skipped.has(d.id)) return "placed skipped";
+            if (state.placed.has(d.id) || state.found.has(d.id)) return "placed";
+            return "slot";
+          },
           fillFor: (d) => (state.placed.has(d.id) ? colorFor(d.id) : ""),
           attrsFor: (d) => (state.placed.has(d.id) ? "" : 'data-slot="1"'),
         })}
@@ -344,6 +358,7 @@ function renderGame() {
         <p class="hint-copy">${state.hintText || copy.landmarks}</p>
         <div class="hint-row">
           <button type="button" data-act="hint">${copy.hint}</button>
+          <button type="button" class="skip" data-act="skip">${copy.skip}</button>
         </div>
       </aside>
     </section>
@@ -374,19 +389,26 @@ function advanceQueue() {
   state.current = state.queue[0] || null;
   state.hintText = "";
   state.hintDir = null;
-  state.triesLeft = MAX_TRIES;
+  state.hintedCurrent = false;
   if (!state.current) {
-    clearInterval(state.timer);
-    renderGame();
-    showEnd();
+    finishRound();
     return;
   }
   renderGame();
 }
 
-function tryPlace(id) {
+function skipDistrict() {
   if (!state.current) return;
+  state.skipped.add(state.current.id);
+  state.placed.add(state.current.id);
+  advanceQueue();
+}
+
+function tryPlace(id) {
+  if (!state.current || state.triesLeft <= 0) return;
   if (id === state.current.id) {
+    state.score += state.hintedCurrent ? SCORE_HINTED : SCORE_FOUND;
+    state.found.add(id);
     state.placed.add(id);
     advanceQueue();
     return;
@@ -399,13 +421,21 @@ function tryPlace(id) {
     setTimeout(() => slot.classList.remove("is-wrong"), 450);
   }
   if (state.triesLeft <= 0) {
-    toast(t().missed);
-    advanceQueue();
+    toast(t().outOfGuesses);
+    finishRound();
     return;
   }
   const tries = document.getElementById("tries");
   if (tries) tries.textContent = `${t().tries} ${state.triesLeft}/${MAX_TRIES}`;
   toast(t().wrong);
+}
+
+function finishRound() {
+  state.score += state.triesLeft * SCORE_GUESS_LEFT;
+  state.current = null;
+  clearInterval(state.timer);
+  renderGame();
+  showEnd();
 }
 
 function compassDir(dx, dy) {
@@ -447,6 +477,7 @@ function clueFor(district) {
 function showHint() {
   if (!state.current) return;
   state.hints += 1;
+  state.hintedCurrent = true;
   state.hintText = clueFor(state.current);
   renderGame();
 }
@@ -454,17 +485,21 @@ function showHint() {
 function showEnd() {
   const copy = t();
   const total = state.roundTotal;
-  const perfect = state.placed.size === total;
+  const perfect = state.found.size === total && state.skipped.size === 0;
   const overlay = document.createElement("div");
   overlay.className = "overlay";
   overlay.innerHTML = `
     <div class="card">
       <h2>${perfect ? copy.done : copy.finished}</h2>
-      <p>${
-        perfect
-          ? copy.result(fmt(state.elapsed), state.misses, state.hints)
-          : copy.resultPartial(state.placed.size, total, fmt(state.elapsed), state.misses, state.hints)
-      }</p>
+      <p class="score-line">${state.score}</p>
+      <p>${copy.result(
+        state.score,
+        state.found.size,
+        state.skipped.size,
+        fmt(state.elapsed),
+        state.misses,
+        state.hints
+      )}</p>
       <button type="button" data-act="replay">${copy.again}</button>
       <button type="button" data-act="home">${copy.back}</button>
     </div>`;
@@ -497,6 +532,7 @@ app.addEventListener("click", (e) => {
     renderHome();
   }
   if (act === "hint") showHint();
+  if (act === "skip") skipDistrict();
   if (act === "replay") startGame(state.level);
 });
 
