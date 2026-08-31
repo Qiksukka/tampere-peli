@@ -205,16 +205,16 @@ button,
 .lives {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 8px;
   background: #ffffff14;
   border-radius: 999px;
-  padding: 6px 10px;
+  padding: 10px 16px;
   flex: none;
 }
 
 .heart {
-  width: 16px;
-  height: 16px;
+  width: 36px;
+  height: 36px;
   display: block;
   overflow: visible;
 }
@@ -225,8 +225,8 @@ button,
 
 .heart.is-off {
   fill: none;
-  stroke: #ffffff66;
-  stroke-width: 1.25;
+  stroke: #ffffff88;
+  stroke-width: 1.1;
 }
 
 .play {
@@ -612,13 +612,14 @@ path.skipped {
   }
 
   .lives {
-    padding: 6px 8px;
+    padding: 6px 10px;
+    gap: 4px;
     justify-content: center;
   }
 
   .heart {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
   }
 
   .ghost,
