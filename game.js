@@ -38,14 +38,19 @@ const I18N = {
     clueNasijarvi: "Näsijärven puolella.",
     cluePyhajarvi: "Pyhäjärven puolella.",
     skip: "Ohita",
+    tries: "Yritykset",
     wrong: "Ei osunut — kokeile toisaalle",
+    missed: "Viisi yritystä täynnä — seuraava",
     done: "Kaikki paikoillaan!",
+    finished: "Kierros ohi",
     again: "Uusi peli",
     landmarks: "Koski, tornit ja järvet auttavat suuntaamaan.",
     source:
       "Kartta: Tampereen kaupungin avoin data (suunnittelualueet ja tilastoalueet), CC BY 4.0.",
     result: (t, misses, hints) =>
       `Aika ${t}. Väärät yritykset ${misses}, vihjeitä ${hints}.`,
+    resultPartial: (placed, total, t, misses, hints) =>
+      `Löysit ${placed}/${total}. Aika ${t}. Väärät yritykset ${misses}, vihjeitä ${hints}.`,
   },
   en: {
     title: "Tampere puzzle",
@@ -73,16 +78,23 @@ const I18N = {
     clueNasijarvi: "On the Näsijärvi side.",
     cluePyhajarvi: "On the Pyhäjärvi side.",
     skip: "Skip",
+    tries: "Tries",
     wrong: "Not quite — try another spot",
+    missed: "Five tries used — next district",
     done: "Every district is home!",
+    finished: "Round over",
     again: "Play again",
     landmarks: "Use the rapids, towers and lakes to get your bearings.",
     source:
       "Map: City of Tampere open data (planning and statistical areas), CC BY 4.0.",
     result: (t, misses, hints) =>
       `Time ${t}. Misses ${misses}, hints ${hints}.`,
+    resultPartial: (placed, total, t, misses, hints) =>
+      `You found ${placed}/${total}. Time ${t}. Misses ${misses}, hints ${hints}.`,
   },
 };
+
+const MAX_TRIES = 5;
 
 const app = document.getElementById("app");
 let data = null;
@@ -98,6 +110,8 @@ const state = {
   startedAt: 0,
   elapsed: 0,
   misses: 0,
+  triesLeft: MAX_TRIES,
+  roundTotal: 0,
   hints: 0,
   hintText: "",
   hintDir: null,
@@ -277,10 +291,12 @@ function startGame(level) {
   const lvl = data.levels[level];
   const pool = shuffle(lvl.districts);
   state.queue = lvl.pick ? pool.slice(0, lvl.pick) : pool;
+  state.roundTotal = state.queue.length;
   state.current = state.queue[0];
   state.startedAt = Date.now();
   state.elapsed = 0;
   state.misses = 0;
+  state.triesLeft = MAX_TRIES;
   state.hints = 0;
   state.hintText = "";
   state.hintDir = null;
@@ -296,7 +312,7 @@ function startGame(level) {
 function renderGame() {
   const copy = t();
   const level = data.levels[state.level];
-  const total = state.queue.length + state.placed.size;
+  const total = state.roundTotal;
   const current = state.current;
   const mapDistricts = backdropDistricts();
   const viewBox = level.viewBox || data.viewBox;
@@ -307,6 +323,7 @@ function renderGame() {
       <span class="stat">${level[lang === "fi" ? "labelFi" : "labelEn"]}</span>
       <span class="stat" id="clock">${fmt(state.elapsed)}</span>
       <span class="stat">${copy.placed} ${state.placed.size}/${total}</span>
+      <span class="stat" id="tries">${copy.tries} ${state.triesLeft}/${MAX_TRIES}</span>
       <div class="spacer"></div>
       <button class="lang" data-act="lang" type="button">${copy.lang}</button>
     </header>
@@ -351,30 +368,43 @@ function bindMap() {
   });
 }
 
+function advanceQueue() {
+  const idx = state.queue.findIndex((d) => d.id === state.current?.id);
+  if (idx >= 0) state.queue.splice(idx, 1);
+  state.current = state.queue[0] || null;
+  state.hintText = "";
+  state.hintDir = null;
+  state.triesLeft = MAX_TRIES;
+  if (!state.current) {
+    clearInterval(state.timer);
+    renderGame();
+    showEnd();
+    return;
+  }
+  renderGame();
+}
+
 function tryPlace(id) {
   if (!state.current) return;
   if (id === state.current.id) {
     state.placed.add(id);
-    const idx = state.queue.findIndex((d) => d.id === id);
-    if (idx >= 0) state.queue.splice(idx, 1);
-    state.current = state.queue[0] || null;
-    state.hintText = "";
-    state.hintDir = null;
-    if (!state.current) {
-      clearInterval(state.timer);
-      renderGame();
-      showWin();
-      return;
-    }
-    renderGame();
+    advanceQueue();
     return;
   }
   state.misses += 1;
+  state.triesLeft -= 1;
   const slot = document.querySelector(`[data-id="${id}"]`);
   if (slot) {
     slot.classList.add("is-wrong");
     setTimeout(() => slot.classList.remove("is-wrong"), 450);
   }
+  if (state.triesLeft <= 0) {
+    toast(t().missed);
+    advanceQueue();
+    return;
+  }
+  const tries = document.getElementById("tries");
+  if (tries) tries.textContent = `${t().tries} ${state.triesLeft}/${MAX_TRIES}`;
   toast(t().wrong);
 }
 
@@ -421,14 +451,20 @@ function showHint() {
   renderGame();
 }
 
-function showWin() {
+function showEnd() {
   const copy = t();
+  const total = state.roundTotal;
+  const perfect = state.placed.size === total;
   const overlay = document.createElement("div");
   overlay.className = "overlay";
   overlay.innerHTML = `
     <div class="card">
-      <h2>${copy.done}</h2>
-      <p>${copy.result(fmt(state.elapsed), state.misses, state.hints)}</p>
+      <h2>${perfect ? copy.done : copy.finished}</h2>
+      <p>${
+        perfect
+          ? copy.result(fmt(state.elapsed), state.misses, state.hints)
+          : copy.resultPartial(state.placed.size, total, fmt(state.elapsed), state.misses, state.hints)
+      }</p>
       <button type="button" data-act="replay">${copy.again}</button>
       <button type="button" data-act="home">${copy.back}</button>
     </div>`;
